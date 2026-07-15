@@ -113,16 +113,14 @@ get_time_ms:
     mov ebx, time_struct
     mov ecx, 0
     int 0x80
-    mov eax, [time_struct]
-    imul eax, 1000
-    mov ebx, [time_struct + 4]
-    mov ecx, 1000
+    mov eax, [time_struct + 4]   
     xor edx, edx
-    div ecx 
-    mov ecx, eax
+    mov ecx, 1000
+    div ecx                   
+    mov ebx, eax
     mov eax, [time_struct]
     imul eax, 1000
-    add eax, ecx
+    add eax, ebx
     ret
 
 init_timer:
