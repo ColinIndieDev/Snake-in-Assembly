@@ -1,4 +1,4 @@
-NASMFLAGS = -f elf32
+NASMFLAGS = -f elf32 -g -Fdwarf
 LDFLAGS = -m elf_i386
 TARGET = main
 SRC = main.asm

@@ -8,19 +8,22 @@ section .bss
     timer_accum     resd 1
 
 section .data
-    background      db ".", 0
-    clear_screen    db 27, "[2J", 27, "[H", 0
-    reset_cursor    db 27, "[H", 0
-    hide_cursor     db 27, "[?25l", 0
-    show_cursor     db 27, "[?25h", 0
+    background      db "."
+    clear_screen    db 27, "[2J", 27, "[H"
+    reset_cursor    db 27, "[H"
+    hide_cursor     db 27, "[?25l"
+    show_cursor     db 27, "[?25h"
 
     map_size        dd 20
-    player          db "#", 0
+    apple           db "O"
+    apple_x         dd 0 
+    apple_y         dd 0
+    player          db "#"
     player_x        dd 2 
     player_y        dd 4
     dir_x           dd 1
     dir_y           dd 0
-    move_cooldown   dd 1000 ; in ms
+    move_cooldown   dd 100 ; in ms
 
     endl            db 10
     key_esc         db 27
@@ -97,6 +100,22 @@ delay_frame:
     add esp, 8                  
     ret
 
+gen_rand_num:
+    rdrand eax
+    jnc gen_rand_num     
+    xor edx, edx
+    mov ecx, [map_size]
+    div ecx
+    mov eax, edx
+    ret
+
+gen_rand_apple_pos:
+    call gen_rand_num
+    mov [apple_x], eax
+    call gen_rand_num
+    mov [apple_y], eax
+    ret
+
 setup:
     call get_termios
     call clone_termios
@@ -129,6 +148,24 @@ init_timer:
     mov dword[timer_accum], 0
     ret
 
+draw_bg:
+    mov ecx, background
+    mov edx, 1 
+    call print
+    ret
+
+draw_player:
+    mov ecx, player,
+    mov edx, 1 
+    call print
+    ret
+
+draw_apple:
+    mov ecx, apple,
+    mov edx, 1 
+    call print
+    ret
+
 _start:
     ; Init
     call init_timer
@@ -139,6 +176,9 @@ _start:
     mov ecx, hide_cursor
     mov edx, 6
     call print
+
+    ; Random apple pos
+    call gen_rand_apple_pos
 
     game_loop:
         ; Update player movement
@@ -151,7 +191,7 @@ _start:
         mov [timer_accum], ecx
         mov ecx, [timer_accum]
         cmp ecx, [move_cooldown]
-        jl drawing
+        jl no_player_move
         mov eax, [player_x]
         mov ebx, [player_y]
         add eax, [dir_x]
@@ -160,37 +200,113 @@ _start:
         mov [player_y], ebx
         sub ecx, [move_cooldown]
         mov [timer_accum], ecx
-        drawing:
 
+        ; Keep player inside map 
+        mov eax, [player_x]
+        cmp eax, -1
+        jne not_left
+        mov eax, [map_size]
+        mov [player_x], eax
+        dec [player_x]
+        not_left:
+        mov eax, [player_x]
+        cmp eax, [map_size]
+        jne not_right
+        mov [player_x], 0 
+        not_right:
+        mov eax, [player_y]
+        cmp eax, -1
+        jne not_up
+        mov eax, [map_size]
+        mov [player_y], eax
+        dec [player_y]
+        not_up:
+        mov eax, [player_y]
+        cmp eax, [map_size]
+        jne not_down
+        mov [player_y], 0 
+        not_down:
+
+        ; Check apple player collision
+        mov eax, [player_x]
+        cmp eax, [apple_x]
+        jne no_apple_player_collision
+        mov eax, [player_y]
+        cmp eax, [apple_y]
+        jne no_apple_player_collision
+        call gen_rand_apple_pos
+        no_apple_player_collision: 
+
+
+        no_player_move:
+
+        ; Read input
+        mov ecx, input_buffer
+        mov edx, 1
+        call read
+        mov al, [input_buffer]
+        ; ESC
+        mov bl, [key_esc]
+        cmp al, bl
+        je terminate
+        ; W, A, S, D
+        cmp al, "w"
+        jne w_not_pressed
+        cmp [dir_y], 1
+        je w_not_pressed
+        mov dword[dir_x], 0
+        mov dword[dir_y], -1
+        jmp movement_def
+        w_not_pressed:
+        cmp al, "a"
+        jne a_not_pressed
+        cmp [dir_x], 1
+        je a_not_pressed
+        mov dword[dir_x], -1
+        mov dword[dir_y], 0
+        jmp movement_def
+        a_not_pressed:
+        cmp al, "s"
+        jne s_not_pressed
+        cmp [dir_y], -1
+        je s_not_pressed
+        mov dword[dir_x], 0
+        mov dword[dir_y], 1
+        jmp movement_def
+        s_not_pressed:
+        cmp al, "d"
+        jne movement_def
+        cmp [dir_x], -1
+        je movement_def
+        mov dword[dir_x], 1
+        mov dword[dir_y], 0
+        movement_def:
+
+        ; Drawing
         mov ecx, reset_cursor 
         mov edx, 3
         call print
 
-        ; Draw background
         mov edi, 0
         draw_row:
         mov esi, 0
         draw_col:
-        ; Draw player at player_x, player_y
         cmp esi, [player_x]
-        je x_equal
-        mov ecx, background
-        mov edx, 1
-        call print
-        jmp pos_endif
-        x_equal:
+        jne check_apple
         cmp edi, [player_y]
-        je y_equal
-        mov ecx, background
-        mov edx, 1 
-        call print
-        jmp pos_endif
-        y_equal:
-        mov ecx, player,
-        mov edx, 1 
-        call print
-        pos_endif:
-
+        jne check_apple
+        call draw_player
+        jmp next_tile
+        check_apple:
+        cmp esi, [apple_x]
+        jne draw_default
+        cmp edi, [apple_y]
+        jne draw_default
+        call draw_apple
+        jmp next_tile
+        draw_default:
+        call draw_bg
+        next_tile:
         inc esi
         cmp esi, [map_size]
         jne draw_col
@@ -201,38 +317,6 @@ _start:
         cmp edi, [map_size]
         jne draw_row
 
-        ; Read input
-        mov ecx, input_buffer
-        mov edx, 1
-        call read
-        mov al, [input_buffer]
-
-        ; ESC
-        mov bl, [key_esc]
-        cmp al, bl
-        je terminate
-        
-        ; W, A, S, D
-        cmp al, "w"
-        jne w_not_pressed
-        mov dword[dir_x], 0
-        mov dword[dir_y], -1
-        w_not_pressed:
-        cmp al, "a"
-        jne a_not_pressed
-        mov dword[dir_x], -1
-        mov dword[dir_y], 0
-        a_not_pressed:
-        cmp al, "s"
-        jne s_not_pressed
-        mov dword[dir_x], 0
-        mov dword[dir_y], 1
-        s_not_pressed:
-        cmp al, "d"
-        jne d_not_pressed
-        mov dword[dir_x], 1
-        mov dword[dir_y], 0
-        d_not_pressed:
     jmp game_loop
     terminate:
     mov ecx, show_cursor
